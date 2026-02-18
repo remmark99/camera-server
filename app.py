@@ -43,9 +43,28 @@ def test3():
     return jsonify({"status": "ok", "route": "test3"})
 
 
+
+@app.route("/testpost1", methods=["POST"])
+def testpost1():
+    log_request("testpost1")
+    return jsonify({"status": "ok", "route": "testpost1"})
+
+
+@app.route("/testpost2", methods=["POST"])
+def testpost2():
+    log_request("testpost2")
+    return jsonify({"status": "ok", "route": "testpost2"})
+
+
+@app.route("/testpost3", methods=["POST"])
+def testpost3():
+    log_request("testpost3")
+    return jsonify({"status": "ok", "route": "testpost3"})
+
+
 @app.route("/", methods=["GET"])
 def health():
-    return jsonify({"status": "running", "routes": ["/test1", "/test2", "/test3"]})
+    return jsonify({"status": "running", "routes": ["/test1", "/test2", "/test3", "/testpost1", "/testpost2", "/testpost3"]})
 
 
 if __name__ == "__main__":
