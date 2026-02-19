@@ -198,7 +198,7 @@ def imageupload():
                                              "timestamp": ts,
                                              "video_timestamp": 1,
                                              "source_video": "dahua_stream",
-                                             "clip_path": filename,
+                                             "clip_path": f"{SUPABASE_URL}/storage/v1/object/public/alert_images/{filename}",
                                              "camera_index": 322,
                                          }
                                          
