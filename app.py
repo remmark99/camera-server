@@ -48,6 +48,12 @@ def log_all_requests():
 # def log_requests():
 #     log_all_requests()
 
+# Helper to normalize coordinates (Dahua uses 8192x8192 coordinate system)
+def normalize_coords(point, img_width, img_height):
+    x = int((point[0] / 8192.0) * img_width)
+    y = int((point[1] / 8192.0) * img_height)
+    return (x, y)
+
 @app.route("/imageupload", methods=["POST"])
 def imageupload():
     # Only print internal details if it looks interesting or on errors, to avoid spam
@@ -59,6 +65,7 @@ def imageupload():
     
     # Keep track of current event context for subsequent image parts
     current_event_code = None
+    current_event_data = None
     
     # 1. Handle multipart/x-mixed-replace (Dahua style)
     if request.content_type and "multipart/x-mixed-replace" in request.content_type:
@@ -102,6 +109,7 @@ def imageupload():
                                 # Only process valid events
                                 if code == "CrossLineDetection":
                                     current_event_code = code
+                                    current_event_data = events[0].get("Data")
                                     print(f"🚨 CrossLineDetection EVENT! ID: {events[0].get('EventID')}")
                                     
                                     # Save and Upload JSON
@@ -120,6 +128,7 @@ def imageupload():
                                             print(f"   ❌ JSON Upload failed: {e}")
                                 else:
                                     current_event_code = None # Reset if new part is a different/ignored event
+                                    current_event_data = None
 
                         except Exception as e:
                             pass # Silent fail on text parsing to avoid spam
@@ -134,6 +143,43 @@ def imageupload():
                              # Simple trim check: usually body ends with \r\n
                              if body.endswith(b"\r\n"): body = body[:-2]
                              
+                             # Annotate Image if we have data
+                             try:
+                                 # Decode image
+                                 nparr = np.frombuffer(body, np.uint8)
+                                 img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                                 
+                                 if img is not None and current_event_data:
+                                     height, width = img.shape[:2]
+                                     
+                                     # Draw Detect Line
+                                     detect_line = current_event_data.get("DetectLine")
+                                     if detect_line:
+                                         # Line points
+                                         pt1 = normalize_coords(detect_line[0], width, height)
+                                         pt2 = normalize_coords(detect_line[1], width, height)
+                                         cv2.line(img, pt1, pt2, (0, 0, 255), 3) # Red Line
+                                         
+                                     # Draw Bounding Box
+                                     obj = current_event_data.get("Object")
+                                     if obj:
+                                         bbox = obj.get("BoundingBox")
+                                         if bbox and len(bbox) == 4:
+                                             # Dahua bbox is [x1, y1, x2, y2] in 8192 coords
+                                             x1, y1 = normalize_coords((bbox[0], bbox[1]), width, height)
+                                             x2, y2 = normalize_coords((bbox[2], bbox[3]), width, height)
+                                             cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3) # Green Box
+
+                                     # Re-encode image
+                                     _, img_encoded = cv2.imencode('.jpg', img)
+                                     body = img_encoded.tobytes()
+                                     print("   ✏️ Image Annotated with Line and BBox")
+                                     
+                             except ImportError:
+                                 print("   ⚠️ OpenCV not installed, skipping annotation")
+                             except Exception as e:
+                                 print(f"   ❌ Annotation failed: {e}")
+
                              with open(filepath, 'wb') as f:
                                  f.write(body)
                              saved_files.append(filename)
