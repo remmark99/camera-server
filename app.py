@@ -17,6 +17,16 @@ JSON_DIR = os.path.join(DATA_DIR, "json")
 os.makedirs(IMAGES_DIR, exist_ok=True)
 os.makedirs(JSON_DIR, exist_ok=True)
 
+# Supabase Configuration
+SUPABASE_URL = "https://urgwxfryomiertsyuwco.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVyZ3d4ZnJ5b21pZXJ0c3l1d2NvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0MjkwOTIsImV4cCI6MjA4NTAwNTA5Mn0.IDuetEPZQl-DaFwGqGM2-psoOXoyUsSdUrNUwhDjxYk"
+try:
+    from supabase import create_client, Client
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+except ImportError:
+    print("⚠️ Supabase library not found. Uploads will be skipped.")
+    supabase = None
+
 def log_all_requests():
     """Логирует ВСЕ запросы с Content-Type. Ничего лишнего."""
     print(f"\n🔍 [{request.method}] {request.path}")
@@ -53,18 +63,6 @@ def autoupload():
 
     return jsonify({"status": "ok"})
 
-    return jsonify({"status": "ok", "saved": saved_files})
-
-# Supabase Configuration
-SUPABASE_URL = "https://urgwxfryomiertsyuwco.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVyZ3d4ZnJ5b21pZXJ0c3l1d2NvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0MjkwOTIsImV4cCI6MjA4NTAwNTA5Mn0.IDuetEPZQl-DaFwGqGM2-psoOXoyUsSdUrNUwhDjxYk"
-try:
-    from supabase import create_client, Client
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-except ImportError:
-    print("⚠️ Supabase library not found. Uploads will be skipped.")
-    supabase = None
-
 @app.route("/imageupload", methods=["POST"])
 def imageupload():
     print(f"🖼️ /imageupload received. Content-Type: {request.content_type} Length: {request.content_length}")
@@ -93,13 +91,21 @@ def imageupload():
                         print(f"   ☁️ Uploaded to Supabase: {filename}")
                     except Exception as e:
                         print(f"   ❌ Supabase upload failed: {e}")
-
+    
     # If no files found via standard parsing, save raw body
     if not saved_files and request.data:
-        # Detect extension or default to .bin
+        # Detect extension
         ext = ".bin"
-        if "image/jpeg" in (request.content_type or ""): ext = ".jpg"
-        elif "image/png" in (request.content_type or ""): ext = ".png"
+        header = request.data[:4]
+        
+        if header.startswith(b'\xff\xd8\xff'):
+            ext = ".jpg"
+        elif header.startswith(b'\x89PNG'):
+            ext = ".png"
+        elif "image/jpeg" in (request.content_type or ""): 
+            ext = ".jpg"
+        elif "image/png" in (request.content_type or ""): 
+            ext = ".png"
         
         filename = f"{timestamp}_{unique_id}_raw{ext}"
         filepath = os.path.join(IMAGES_DIR, filename)
