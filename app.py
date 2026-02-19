@@ -199,7 +199,7 @@ def imageupload():
                                              "video_timestamp": 1,
                                              "source_video": "dahua_stream",
                                              "clip_path": filename,
-                                             "camera_index": None
+                                             "camera_index": 322,
                                          }
                                          
                                          supabase.table("alerts").insert(alert_payload).execute()
