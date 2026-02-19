@@ -1,8 +1,21 @@
 import sys
+import os
+import json
+import uuid
+from datetime import datetime
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 sys.stdout.reconfigure(line_buffering=True)
+
+# Create directories for capturing data
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "captured_data")
+IMAGES_DIR = os.path.join(DATA_DIR, "images")
+JSON_DIR = os.path.join(DATA_DIR, "json")
+
+os.makedirs(IMAGES_DIR, exist_ok=True)
+os.makedirs(JSON_DIR, exist_ok=True)
 
 def log_all_requests():
     """Логирует ВСЕ запросы с Content-Type. Ничего лишнего."""
@@ -27,31 +40,59 @@ def log_requests():
 
 @app.route("/autoupload", methods=["POST"])
 def autoupload():
-    print(f"🚨 /autoupload JSON: {request.get_json()}")
+    data = request.get_json(silent=True)
+    print(f"🚨 /autoupload JSON: {data}")
+    
+    if data:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"{timestamp}_{uuid.uuid4().hex[:6]}.json"
+        filepath = os.path.join(JSON_DIR, filename)
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        print(f"   💾 Saved JSON to {filename}")
+
     return jsonify({"status": "ok"})
 
-# Простые эндпоинты без лишних логов
-@app.route("/test1", methods=["GET", "POST"])
-def test1(): return jsonify({"ok": True})
+@app.route("/imageupload", methods=["POST"])
+def imageupload():
+    print(f"🖼️ /imageupload received. Content-Type: {request.content_type} Length: {request.content_length}")
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    unique_id = uuid.uuid4().hex[:6]
+    saved_files = []
+    
+    # Try standard Flask file storage
+    if request.files:
+        for key, file in request.files.items():
+            if file and file.filename:
+                # Clean filename
+                safe_name = "".join([c for c in file.filename if c.isalnum() or c in "._-"])
+                filename = f"{timestamp}_{unique_id}_{safe_name}"
+                filepath = os.path.join(IMAGES_DIR, filename)
+                file.save(filepath)
+                saved_files.append(filename)
+                print(f"   💾 Saved file: {filename}")
+    
+    # If no files found via standard parsing, save raw body
+    if not saved_files and request.data:
+        # Detect extension or default to .bin
+        ext = ".bin"
+        if "image/jpeg" in (request.content_type or ""): ext = ".jpg"
+        elif "image/png" in (request.content_type or ""): ext = ".png"
+        
+        filename = f"{timestamp}_{unique_id}_raw{ext}"
+        filepath = os.path.join(IMAGES_DIR, filename)
+        with open(filepath, 'wb') as f:
+            f.write(request.data)
+        saved_files.append(filename)
+        print(f"   💾 Saved raw body: {filename}")
 
-@app.route("/test2", methods=["GET", "POST"])
-def test2(): return jsonify({"ok": True})
-
-@app.route("/test3", methods=["GET", "POST"])
-def test3(): return jsonify({"ok": True})
-
-@app.route("/testpost1", methods=["POST"])
-def testpost1(): return jsonify({"ok": True})
-
-@app.route("/testpost2", methods=["POST"])
-def testpost2(): return jsonify({"ok": True})
-
-@app.route("/testpost3", methods=["POST"])
-def testpost3(): return jsonify({"ok": True})
+    return jsonify({"status": "ok", "saved": saved_files})
 
 @app.route("/", methods=["GET"])
 def health(): return jsonify({"status": "running"})
 
 if __name__ == "__main__":
     print("🚀 Логирую ВСЕ запросы. Ищу image/ и multipart/")
+    print(f"📂 Saving data to: {DATA_DIR}")
     app.run(host="0.0.0.0", port=5000, debug=False)
