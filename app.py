@@ -114,20 +114,7 @@ def imageupload():
                                     current_event_data = events[0].get("Data")
                                     print(f"🚨 CrossLineDetection EVENT! ID: {events[0].get('EventID')}")
                                     
-                                    # Save and Upload JSON
-                                    json_filename = f"{timestamp}_{unique_id}_{code}.json"
-                                    json_filepath = os.path.join(JSON_DIR, json_filename)
-                                    with open(json_filepath, 'w') as f:
-                                        json.dump(json_data, f, indent=2, ensure_ascii=False)
-                                    
-                                    if supabase:
-                                        try:
-                                            # Upload JSON to Supabase
-                                            with open(json_filepath, 'rb') as f:
-                                                supabase.storage.from_("alert_images").upload(json_filename, f)
-                                            print(f"   📋 JSON Uploaded: {json_filename}")
-                                        except Exception as e:
-                                            print(f"   ❌ JSON Upload failed: {e}")
+                                    print(f"🚨 CrossLineDetection EVENT! ID: {events[0].get('EventID')}")
                                 else:
                                     current_event_code = None # Reset if new part is a different/ignored event
                                     current_event_data = None
@@ -193,8 +180,34 @@ def imageupload():
                                      with open(filepath, 'rb') as f:
                                          supabase.storage.from_("alert_images").upload(filename, f)
                                      print(f"   ☁️ Image Uploaded: {filename}")
+                                     
+                                     # Insert into alerts table
+                                     try:
+                                         line_name = current_event_data.get("Name", "Unknown")
+                                         event_utc = current_event_data.get("UTC")
+                                         if event_utc:
+                                             ts = datetime.fromtimestamp(event_utc).isoformat()
+                                         else:
+                                             ts = datetime.now().isoformat()
+                                             
+                                         alert_payload = {
+                                             "module_name": "dahua_detection",
+                                             "alert_type": "tripwire",
+                                             "severity": 0.5,
+                                             "message": f"Пересечение линии {line_name}",
+                                             "timestamp": ts,
+                                             "video_timestamp": 1,
+                                             "source_video": "dahua_stream",
+                                             "clip_path": filename,
+                                             "camera_index": None
+                                         }
+                                         
+                                         supabase.table("alerts").insert(alert_payload).execute()
+                                         print(f"   🔔 Alert inserted for {line_name}")
+                                     except Exception as e:
+                                         print(f"   ❌ Alert insertion failed: {e}")
                                  except Exception as e:
-                                     print(f"   ❌ Image Upload failed: {e}")
+                                     print(f"   ❌ Image Upload/Alert failed: {e}")
 
         except Exception as e:
             print(f"❌ Error: {e}")
