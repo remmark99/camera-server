@@ -71,8 +71,89 @@ def imageupload():
     unique_id = uuid.uuid4().hex[:6]
     saved_files = []
     
-    # Try standard Flask file storage
-    if request.files:
+    # 1. Handle multipart/x-mixed-replace (Dahua style)
+    if request.content_type and "multipart/x-mixed-replace" in request.content_type:
+        print("🔄 Detected multipart/x-mixed-replace")
+        try:
+            boundary = request.content_type.split("boundary=")[-1].strip()
+            # Handle quotes around boundary if present
+            if boundary.startswith('"') and boundary.endswith('"'):
+                boundary = boundary[1:-1]
+            
+            # Flask's get_data() returns the full raw body
+            raw_data = request.get_data()
+            
+            # Split by boundary
+            # The boundary in the body is prefixed with "--"
+            delimiter = f"--{boundary}".encode()
+            parts = raw_data.split(delimiter)
+            
+            for part in parts:
+                if not part or part.strip() == b"--": continue
+                
+                # Split headers and body
+                # Layout is: CRLF headers CRLF CRLF body CRLF
+                # But sometimes just LF. Let's look for double newline.
+                # Common pattern: \r\n\r\n or \n\n
+                
+                head_body_sep = b"\r\n\r\n"
+                if head_body_sep not in part:
+                    head_body_sep = b"\n\n"
+                
+                if head_body_sep in part:
+                    headers_raw, body = part.split(head_body_sep, 1)
+                    # Trim trailing newline from body if it exists (often just before next boundary)
+                    # But be careful not to corrupt binary data. Usually split result is safe.
+                    # Actually split() might leave the CRLF at the start of the part?
+                    # The split(delimiter) eats the delimiter.
+                    # The part usually starts with \r\n (from the previous boundary's end)
+                    
+                    headers_text = headers_raw.decode('utf-8', errors='ignore')
+                    
+                    if "Content-Type: image/jpeg" in headers_text or "image/jpeg" in headers_text:
+                         # Extract image
+                         filename = f"{timestamp}_{unique_id}.jpg"
+                         filepath = os.path.join(IMAGES_DIR, filename)
+                         # Simple trim check: usually body ends with \r\n
+                         if body.endswith(b"\r\n"): body = body[:-2]
+                         
+                         with open(filepath, 'wb') as f:
+                             f.write(body)
+                         saved_files.append(filename)
+                         print(f"   📸 Extracted Multipart Image: {filename}")
+                         
+                         # Upload to Supabase
+                         if supabase:
+                             try:
+                                 with open(filepath, 'rb') as f:
+                                     supabase.storage.from_("alert_images").upload(filename, f)
+                                 print(f"   ☁️ Uploaded to Supabase: {filename}")
+                             except Exception as e:
+                                 print(f"   ❌ Supabase upload failed: {e}")
+
+                    elif "application/json" in headers_text or "text/plain" in headers_text:
+                        # Extract JSON/Text
+                        # The user snippet suggests text/plain might contain JSON
+                        try:
+                            # Trim potential trailing whitespace
+                            text_content = body.decode('utf-8', errors='ignore').strip()
+                            json_data = json.loads(text_content)
+                            
+                            json_filename = f"{timestamp}_{unique_id}.json"
+                            json_filepath = os.path.join(JSON_DIR, json_filename)
+                            with open(json_filepath, 'w') as f:
+                                json.dump(json_data, f, indent=2, ensure_ascii=False)
+                            print(f"   📋 Extracted Multipart JSON: {json_filename}")
+                        except Exception as e:
+                            print(f"   ⚠️ Could not parse text part as JSON: {e}")
+
+        except Exception as e:
+            print(f"   ❌ Error parsing multipart: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # 2. Try standard Flask file storage (for normal uploads)
+    elif request.files:
         for key, file in request.files.items():
             if file and file.filename:
                 # Clean filename
@@ -92,8 +173,11 @@ def imageupload():
                     except Exception as e:
                         print(f"   ❌ Supabase upload failed: {e}")
     
-    # If no files found via standard parsing, save raw body
+    # 3. Fallback: Save raw body with magic byte detection
     if not saved_files and request.data:
+        # Check if we already handled it in multipart
+        # If saved_files is empty, maybe multipart failed or it wasn't multipart
+        
         # Detect extension
         ext = ".bin"
         header = request.data[:4]
