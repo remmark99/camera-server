@@ -43,14 +43,15 @@ def log_all_requests():
     
     print()
 
-# Логируем ВСЕ запросы через before_request
-@app.before_request
-def log_requests():
-    log_all_requests()
+# Логируем ВСЕ запросы через before_request - REMOVED to reduce spam
+# @app.before_request
+# def log_requests():
+#     log_all_requests()
 
 @app.route("/imageupload", methods=["POST"])
 def imageupload():
-    print(f"🖼️ /imageupload received. Content-Type: {request.content_type} Length: {request.content_length}")
+    # Only print internal details if it looks interesting or on errors, to avoid spam
+    # print(f"🖼️ /imageupload received. Content-Type: {request.content_type} Length: {request.content_length}")
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     unique_id = uuid.uuid4().hex[:6]
@@ -58,7 +59,6 @@ def imageupload():
     
     # Keep track of current event context for subsequent image parts
     current_event_code = None
-    current_event_id = None
     
     # 1. Handle multipart/x-mixed-replace (Dahua style)
     if request.content_type and "multipart/x-mixed-replace" in request.content_type:
@@ -97,22 +97,36 @@ def imageupload():
                             # Extract event info
                             events = json_data.get("Events", [])
                             if events:
-                                current_event_code = events[0].get("Code")
-                                current_event_id = events[0].get("EventID")
-                                print(f"   � Event Detected: {current_event_code} (ID: {current_event_id})")
+                                code = events[0].get("Code")
                                 
-                                # Log detection
-                                if current_event_code == "CrossLineDetection":
-                                    print("   ✅ Valid Event: CrossLineDetection")
+                                # Only process valid events
+                                if code == "CrossLineDetection":
+                                    current_event_code = code
+                                    print(f"🚨 CrossLineDetection EVENT! ID: {events[0].get('EventID')}")
+                                    
+                                    # Save and Upload JSON
+                                    json_filename = f"{timestamp}_{unique_id}_{code}.json"
+                                    json_filepath = os.path.join(JSON_DIR, json_filename)
+                                    with open(json_filepath, 'w') as f:
+                                        json.dump(json_data, f, indent=2, ensure_ascii=False)
+                                    
+                                    if supabase:
+                                        try:
+                                            # Upload JSON to Supabase
+                                            with open(json_filepath, 'rb') as f:
+                                                supabase.storage.from_("alert_images").upload(json_filename, f)
+                                            print(f"   📋 JSON Uploaded: {json_filename}")
+                                        except Exception as e:
+                                            print(f"   ❌ JSON Upload failed: {e}")
                                 else:
-                                    print(f"   ⚠️ Ignoring Event: {current_event_code}")
+                                    current_event_code = None # Reset if new part is a different/ignored event
 
                         except Exception as e:
-                            print(f"   ⚠️ Could not parse text part as JSON: {e}")
+                            pass # Silent fail on text parsing to avoid spam
 
                     # Check for Image
                     elif "Content-Type: image/jpeg" in headers_text or "image/jpeg" in headers_text:
-                         # Only process if it matches our criteria
+                         # Only process if we are currently in a valid event context
                          if current_event_code == "CrossLineDetection":
                              filename = f"{timestamp}_{unique_id}_{current_event_code}.jpg"
                              filepath = os.path.join(IMAGES_DIR, filename)
@@ -123,23 +137,19 @@ def imageupload():
                              with open(filepath, 'wb') as f:
                                  f.write(body)
                              saved_files.append(filename)
-                             print(f"   📸 Saved Image: {filename}")
+                             print(f"   📸 Image Saved: {filename}")
                              
                              # Upload to Supabase
                              if supabase:
                                  try:
                                      with open(filepath, 'rb') as f:
                                          supabase.storage.from_("alert_images").upload(filename, f)
-                                     print(f"   ☁️ Uploaded to Supabase: {filename}")
+                                     print(f"   ☁️ Image Uploaded: {filename}")
                                  except Exception as e:
-                                     print(f"   ❌ Supabase upload failed: {e}")
-                         else:
-                             print(f"   ⛔ Skipping image for event: {current_event_code}")
+                                     print(f"   ❌ Image Upload failed: {e}")
 
         except Exception as e:
-            print(f"   ❌ Error parsing multipart: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ Error: {e}")
 
     return jsonify({"status": "ok", "saved": saved_files})
 
