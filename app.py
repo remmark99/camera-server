@@ -25,6 +25,11 @@ def log_all_requests():
 def log_requests():
     log_all_requests()
 
+@app.route("/autoupload", methods=["POST"])
+def autoupload():
+    print(f"🚨 /autoupload JSON: {request.get_json()}")
+    return jsonify({"status": "ok"})
+
 # Простые эндпоинты без лишних логов
 @app.route("/test1", methods=["GET", "POST"])
 def test1(): return jsonify({"ok": True})
