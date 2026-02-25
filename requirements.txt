@@ -3,3 +3,4 @@ gunicorn==23.0.0
 supabase
 opencv-python-headless
 numpy
+requests
