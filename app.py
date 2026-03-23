@@ -263,8 +263,8 @@ def imageupload():
                                         ts = datetime.now().isoformat()
 
                                     alert_payload = {
-                                        "module_name": "dahua_detection",
-                                        "alert_type": "tripwire",
+                                        "module_name": "shore",
+                                        "alert_type": "line_cross",
                                         "severity": 0.5,
                                         "message": f"Пересечение линии {line_name}",
                                         "timestamp": ts,
